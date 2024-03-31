@@ -47,7 +47,7 @@ async fn main() {
     let handle = net_route::Handle::new().unwrap();
 	handle.delete(&Route::new(IpAddr::from([10, 0, 0, 0]), 24).with_ifindex(tun_index).with_gateway(IpAddr::from([10,0,0,255]))).await;
     let routes = [
-        Route::new(IpAddr::from([0, 0, 0, 0]), 1).with_gateway(IpAddr::from([10,0,0,1])),
+        Route::new(IpAddr::from([0, 0, 0, 0]), 1).with_gateway(IpAddr::from([10,0,0,255])),
         Route::new(IpAddr::from([128, 0, 0, 0]), 1).with_ifindex(tun_index),
     ];
     for r in &routes {
