@@ -1,8 +1,4 @@
-use std::{
-	ffi::CString,
-    net::{IpAddr, SocketAddr},
-    num::NonZeroU32,
-};
+use std::net::SocketAddr;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::io::{AsRawSocket, AsSocket};
@@ -10,6 +6,7 @@ use std::os::windows::io::{AsRawSocket, AsSocket};
 #[cfg(target_os = "linux")]
 use std::ffi::CStr;
 
+#[cfg(not(target_os = "windows"))]
 use net_route::Route;
 
 use socket2::{Domain, SockAddr, Type};
@@ -48,6 +45,7 @@ async fn main() {
 
     #[cfg(target_family = "unix")]
     let tun_index = {
+        use std::ffi::CString;
         let name = CString::new(tun_name).unwrap();
         unsafe { libc::if_nametoindex(name.as_ptr()) }
     };
@@ -112,6 +110,7 @@ async fn main() {
 
                     #[cfg(target_os = "macos")]
                     {
+                        use std::num::NonZeroU32;
                         // let index = {
                         //     let out_name = CString::new("en0").unwrap();
                         //     NonZeroU32::new(unsafe { libc::if_nametoindex(out_name.as_ptr()) })
