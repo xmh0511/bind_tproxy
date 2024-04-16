@@ -1,8 +1,11 @@
 use std::{
-    ffi::CString,
+	ffi::CString,
     net::{IpAddr, SocketAddr},
-    num::NonZeroU32, os::fd::{AsFd, AsRawFd},
+    num::NonZeroU32,
 };
+
+#[cfg(target_os = "linux")]
+use std::ffi::CStr;
 
 use net_route::Route;
 use socket2::{Domain, SockAddr, Type};
@@ -45,6 +48,23 @@ async fn main() {
     };
 
     let handle = net_route::Handle::new().unwrap();
+
+	let outbound_index = {
+		let default = handle.default_route().await.unwrap().unwrap();
+		default.ifindex.unwrap()
+	};
+
+	#[cfg(target_os = "linux")]
+	let outbound_name = {
+		let mut name = [0i8;128];
+		unsafe {
+			let ptr = name.as_mut_ptr();
+			let s = libc::if_indextoname(outbound_index, ptr);
+			let name = CStr::from_ptr(s).to_owned().to_str().unwrap().to_owned();
+			name
+		}
+	};
+
 	//handle.delete(&Route::new(IpAddr::from([10, 0, 0, 0]), 24).with_ifindex(tun_index).with_gateway(IpAddr::from([10,0,0,255]))).await;
 	#[cfg(target_os = "linux")]
 	let routes = [
@@ -64,7 +84,7 @@ async fn main() {
 		Route::new(IpAddr::from([64, 0, 0, 0]), 2).with_ifindex(tun_index),
         Route::new(IpAddr::from([128, 0, 0, 0]), 1).with_ifindex(tun_index),
     ];
-	
+
     for r in &routes {
         handle.add(r).await.unwrap();
     }
@@ -79,15 +99,16 @@ async fn main() {
                     }
                     let socket = socket2::Socket::new(Domain::IPV4, Type::STREAM, None).unwrap();
                     #[cfg(target_os = "linux")]
-                    socket.bind_device(Some(b"enp4s0")).unwrap();
+                    socket.bind_device(Some(outbound_name.as_bytes())).unwrap();
+
                     #[cfg(target_os = "macos")]
                     {
-                        let index = {
-                            let out_name = CString::new("en0").unwrap();
-                            NonZeroU32::new(unsafe { libc::if_nametoindex(out_name.as_ptr()) })
-                        };
+                        // let index = {
+                        //     let out_name = CString::new("en0").unwrap();
+                        //     NonZeroU32::new(unsafe { libc::if_nametoindex(out_name.as_ptr()) })
+                        // };
                         // socket.bind_device_by_index_v6(index).unwrap();
-                        socket.bind_device_by_index_v4(index).unwrap();
+                        socket.bind_device_by_index_v4(Some(NonZeroU32::new(outbound_index)).unwrap()).unwrap();
 						// unsafe {
 						// 	let index = index.unwrap().get();
 						// 	if libc::setsockopt(socket.as_fd().as_raw_fd(), libc::IPPROTO_IP, libc::IP_BOUND_IF, std::ptr::addr_of!(index).cast(), std::mem::size_of::<u32>() as libc::socklen_t) == -1{
