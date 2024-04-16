@@ -101,9 +101,9 @@ async fn main() {
             match stream {
                 ipstack::stream::IpStackStream::Tcp(mut tcp) => {
                     println!("src {} -> dest {}", tcp.local_addr(), tcp.peer_addr());
-                    if tcp.peer_addr().ip().to_string() == "101.35.230.139" {
-                        panic!("loop routing");
-                    }
+                    // if tcp.peer_addr().ip().to_string() == "101.35.230.139" {
+                    //     panic!("loop routing");
+                    // }
                     let socket = socket2::Socket::new(Domain::IPV4, Type::STREAM, None).unwrap();
                     #[cfg(target_os = "linux")]
                     socket.bind_device(Some(outbound_name.as_bytes())).unwrap();
