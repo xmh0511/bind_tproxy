@@ -22,6 +22,14 @@ async fn main() {
     #[cfg(target_os = "windows")]
     const MTU: u16 = u16::MAX;
 
+    let env = std::env::args().into_iter().collect::<Vec<String>>();
+
+    let set_time_out = if env.len() == 3 && env[1] == "-t" {
+        Some(env[2].parse::<u64>().unwrap())
+    } else {
+        None
+    };
+
     let tun_name = "utun6";
     let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(1);
     ctrlc2::set_async_handler(async move {
@@ -153,17 +161,21 @@ async fn main() {
                         ))))
                         .unwrap();
                     socket.set_nonblocking(true).unwrap();
-                    //let timeout = std::time::Duration::from_secs(5);
                     tokio::spawn(async move {
-                        let mut socket = tokio::net::TcpStream::from_std(socket.into()).unwrap();
-                        //my_bidirection_copy(tcp, socket, timeout, comming_str).await;
-                        let mut tcp = tcp;
-                        match tokio::io::copy_bidirectional(&mut tcp, &mut socket).await {
-                            Ok(_v) => {}
-                            Err(e) => {
-                                println!("{comming_str} {e:?}");
-                            }
-                        };
+                        let socket = tokio::net::TcpStream::from_std(socket.into()).unwrap();
+                        if let Some(t) = set_time_out {
+                            let timeout = std::time::Duration::from_secs(t);
+                            my_bidirection_copy(tcp, socket, timeout, comming_str).await;
+                        } else {
+                            tokio_bidirection_copy(tcp, socket, comming_str).await;
+                        }
+                        //let mut tcp = tcp;
+                        // match tokio::io::copy_bidirectional(&mut tcp, &mut socket).await {
+                        //     Ok(_v) => {}
+                        //     Err(e) => {
+                        //         println!("{comming_str} {e:?}");
+                        //     }
+                        // };
                     });
                 }
                 ipstack::stream::IpStackStream::Udp(_) => {}
@@ -194,7 +206,8 @@ where
     join_set.spawn(async move {
         let mut buf = [0u8; 1500];
         loop {
-            let size = tokio::time::timeout(timeout, l_reader.read(&mut buf)).await??;
+            //let size = tokio::time::timeout(timeout, l_reader.read(&mut buf)).await??;
+            let size = l_reader.read(&mut buf).await?;
             if size == 0 {
                 println!("tun side read 0 size");
                 return Err(std::io::Error::new(std::io::ErrorKind::NotConnected, ""));
@@ -220,7 +233,22 @@ where
         Ok(())
     });
     while let Some(_v) = join_set.join_next().await {
-        //println!("join await {v:?}");
+        join_set.abort_all();
+        //println!("join await {_v:?}");
     }
     println!("====== end tcp connection {info} ======");
+}
+
+#[allow(dead_code)]
+async fn tokio_bidirection_copy<L, R>(mut lhs: L, mut rhs: R, info: String)
+where
+    L: AsyncRead + AsyncWrite + Unpin + 'static,
+    R: AsyncRead + AsyncWrite + Unpin + 'static,
+{
+    match tokio::io::copy_bidirectional(&mut lhs, &mut rhs).await {
+        Ok(_) => {}
+        Err(e) => {
+            println!("====== end tcp connection {info} {e:?} ======");
+        }
+    }
 }
