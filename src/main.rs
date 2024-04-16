@@ -135,7 +135,7 @@ async fn main() {
                         let sock = WinSock::SOCKET(socket.as_socket().as_raw_socket() as usize);
                         let big = outbound_index.to_be_bytes();
                         unsafe{
-                            let r = WinSock::setsockopt(sock, 0, WinSock::IP_UNICAST_IF, Some(&big));
+                            let r = WinSock::setsockopt(sock, WinSock::IPPROTO_IP.0, WinSock::IP_UNICAST_IF, Some(&big));
                             println!("setsockopt r = {r}");
                         }
                     }
