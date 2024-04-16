@@ -1,8 +1,11 @@
 use std::{
 	ffi::CString,
     net::{IpAddr, SocketAddr},
-    num::NonZeroU32, os::windows::io::{AsRawSocket, AsSocket},
+    num::NonZeroU32,
 };
+
+#[cfg(target_os = "windows")]
+os::windows::io::{AsRawSocket, AsSocket};
 
 #[cfg(target_os = "linux")]
 use std::ffi::CStr;
