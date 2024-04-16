@@ -1,5 +1,8 @@
 use std::net::SocketAddr;
 
+#[cfg(target_family = "unix")]
+use std::net::IpAddr;
+
 #[cfg(target_os = "windows")]
 use std::os::windows::io::{AsRawSocket, AsSocket};
 
