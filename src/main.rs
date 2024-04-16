@@ -5,7 +5,7 @@ use std::{
 };
 
 #[cfg(target_os = "windows")]
-os::windows::io::{AsRawSocket, AsSocket};
+use std::os::windows::io::{AsRawSocket, AsSocket};
 
 #[cfg(target_os = "linux")]
 use std::ffi::CStr;
