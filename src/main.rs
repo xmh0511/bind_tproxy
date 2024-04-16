@@ -1,13 +1,14 @@
 use std::{
 	ffi::CString,
     net::{IpAddr, SocketAddr},
-    num::NonZeroU32,
+    num::NonZeroU32, os::windows::io::{AsRawSocket, AsSocket},
 };
 
 #[cfg(target_os = "linux")]
 use std::ffi::CStr;
 
 use net_route::Route;
+
 use socket2::{Domain, SockAddr, Type};
 
 #[tokio::main]
@@ -24,7 +25,7 @@ async fn main() {
     let mut tun_config = tun2::Configuration::default();
     tun_config
         .address((10, 0, 0, 1))
-        .destination((10, 0, 0, 255))
+        .destination((10, 0, 0, 9)) //Windows下不能是10.0.0.255否则无法路由全局流量
         .netmask((255, 255, 255, 0))
         .tun_name(tun_name)
         .mtu(1500)
@@ -42,6 +43,7 @@ async fn main() {
 	// 	.tun_gateway(IpAddr::from([10, 0, 0, 255]));
     // let route_state = tproxy_config::tproxy_setup(&args).unwrap();
 
+    #[cfg(target_family = "unix")]
     let tun_index = {
         let name = CString::new(tun_name).unwrap();
         unsafe { libc::if_nametoindex(name.as_ptr()) }
@@ -85,6 +87,10 @@ async fn main() {
         Route::new(IpAddr::from([128, 0, 0, 0]), 1).with_ifindex(tun_index),
     ];
 
+    #[cfg(target_os = "windows")]
+    let routes = [
+    ];
+
     for r in &routes {
         handle.add(r).await.unwrap();
     }
@@ -116,6 +122,17 @@ async fn main() {
 						// 	}
 						// };
 						//socket.bind(&socket2::SockAddr::from(SocketAddr::from(([192,168,1,1],0))));
+                    }
+                    #[cfg(target_os = "windows")]
+                    {
+                        use windows::Win32::Networking::WinSock;
+                        //use windows::Win32::Networking::WinSock::SOCKET;
+                        let sock = WinSock::SOCKET(socket.as_socket().as_raw_socket() as usize);
+                        let big = outbound_index.to_be_bytes();
+                        unsafe{
+                            let r = WinSock::setsockopt(sock, 0, WinSock::IP_UNICAST_IF, Some(&big));
+                            println!("setsockopt r = {r}");
+                        }
                     }
                     socket
                         .connect(&SockAddr::from(SocketAddr::from((
