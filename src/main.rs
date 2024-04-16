@@ -13,6 +13,7 @@ use std::ffi::CStr;
 use net_route::Route;
 
 use socket2::{Domain, SockAddr, Type};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 #[tokio::main]
 async fn main() {
@@ -102,8 +103,9 @@ async fn main() {
     tokio::spawn(async move {
         while let Ok(stream) = ipstack.accept().await {
             match stream {
-                ipstack::stream::IpStackStream::Tcp(mut tcp) => {
-                    println!("src {} -> dest {}", tcp.local_addr(), tcp.peer_addr());
+                ipstack::stream::IpStackStream::Tcp(tcp) => {
+                    let comming_str = format!("src {} -> dest {}", tcp.local_addr(), tcp.peer_addr());
+                    println!("{}",comming_str);
                     // if tcp.peer_addr().ip().to_string() == "101.35.230.139" {
                     //     panic!("loop routing");
                     // }
@@ -136,7 +138,9 @@ async fn main() {
                         let big = outbound_index.to_be_bytes();
                         unsafe{
                             let r = WinSock::setsockopt(sock, WinSock::IPPROTO_IP.0, WinSock::IP_UNICAST_IF, Some(&big));
-                            println!("setsockopt r = {r}");
+                            if r !=0{
+                                panic!("setsockopt r = {r}");
+                            }
                         }
                     }
                     socket
@@ -146,13 +150,10 @@ async fn main() {
                         ))))
                         .unwrap();
                     socket.set_nonblocking(true).unwrap();
-                    let mut socket = tokio::net::TcpStream::from_std(socket.into()).unwrap();
+                    let timeout = std::time::Duration::from_secs(5);
                     tokio::spawn(async move {
-                        match tokio::io::copy_bidirectional(&mut tcp, &mut socket)
-                            .await{
-								Ok(_v) => {},
-								Err(_) => {},
-							}
+                        my_bidirection_copy(tcp, tokio::net::TcpStream::from_std(socket.into()).unwrap(),timeout,comming_str)
+                            .await;
                     });
                 }
                 ipstack::stream::IpStackStream::Udp(_) => {}
@@ -169,4 +170,46 @@ async fn main() {
     }
 
     println!("Got it! Exiting...");
+}
+
+async fn my_bidirection_copy<L, R>(lhs: L, rhs: R,timeout:std::time::Duration,info:String)
+where
+    L: AsyncRead + AsyncWrite + Send + Sync + 'static,
+    R: AsyncRead + AsyncWrite + Send + Sync + 'static,
+{
+    let (mut l_reader, mut l_writer) = tokio::io::split(lhs);
+    let (mut r_reader, mut r_writer) = tokio::io::split(rhs);
+    let mut join_set = tokio::task::JoinSet::new();
+    join_set.spawn(async move {
+        let mut buf = [0u8; 1500];
+        loop {
+            let size = tokio::time::timeout(timeout, l_reader.read(&mut buf)).await??;
+            if size == 0 {
+                println!("tun side read 0 size");
+                return Err(std::io::Error::new(std::io::ErrorKind::NotConnected, ""));
+            }
+            //println!("outbound {}",String::from_utf8_lossy(&buf[..size]));
+            r_writer.write_all(&buf[..size]).await?;
+        }
+        #[allow(unreachable_code)]
+        Ok(())
+    });
+    join_set.spawn(async move {
+        let mut buf = [0u8; 1500];
+        loop {
+            let size = tokio::time::timeout(timeout, r_reader.read(&mut buf)).await??;
+            if size == 0 {
+                println!("server side read 0 size");
+                return Err(std::io::Error::new(std::io::ErrorKind::NotConnected, ""));
+            }
+            //println!("inbound {}", String::from_utf8_lossy(&buf[..size]));
+            l_writer.write_all(&buf[..size]).await?;
+        }
+        #[allow(unreachable_code)]
+        Ok(())
+    });
+    while let Some(_v) = join_set.join_next().await{
+        //println!("join await {v:?}");
+    }
+    println!("====== end tcp connection {info} ======");
 }
