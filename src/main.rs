@@ -1,7 +1,7 @@
 use std::{
     ffi::CString,
     net::{IpAddr, SocketAddr},
-    num::NonZeroU32,
+    num::NonZeroU32, os::fd::{AsFd, AsRawFd},
 };
 
 use net_route::Route;
@@ -45,11 +45,26 @@ async fn main() {
     };
 
     let handle = net_route::Handle::new().unwrap();
-	handle.delete(&Route::new(IpAddr::from([10, 0, 0, 0]), 24).with_ifindex(tun_index).with_gateway(IpAddr::from([10,0,0,255]))).await;
-    let routes = [
-        Route::new(IpAddr::from([0, 0, 0, 0]), 1).with_gateway(IpAddr::from([10,0,0,255])),
+	//handle.delete(&Route::new(IpAddr::from([10, 0, 0, 0]), 24).with_ifindex(tun_index).with_gateway(IpAddr::from([10,0,0,255]))).await;
+	#[cfg(target_os = "linux")]
+	let routes = [
+		Route::new(IpAddr::from([0, 0, 0, 0]), 1).with_ifindex(tun_index),  // does not work on macOS
         Route::new(IpAddr::from([128, 0, 0, 0]), 1).with_ifindex(tun_index),
     ];
+
+	#[cfg(target_os = "macos")]
+    let routes = [
+		// Route::new(IpAddr::from([0, 0, 0, 0]), 1).with_ifindex(tun_index),  // does not work on macOS
+        Route::new(IpAddr::from([1, 0, 0, 0]), 8).with_ifindex(tun_index),
+		Route::new(IpAddr::from([2, 0, 0, 0]), 7).with_ifindex(tun_index),
+		Route::new(IpAddr::from([4, 0, 0, 0]), 6).with_ifindex(tun_index),
+		Route::new(IpAddr::from([8, 0, 0, 0]), 5).with_ifindex(tun_index),
+		Route::new(IpAddr::from([16, 0, 0, 0]), 4).with_ifindex(tun_index),
+		Route::new(IpAddr::from([32, 0, 0, 0]), 3).with_ifindex(tun_index),
+		Route::new(IpAddr::from([64, 0, 0, 0]), 2).with_ifindex(tun_index),
+        Route::new(IpAddr::from([128, 0, 0, 0]), 1).with_ifindex(tun_index),
+    ];
+	
     for r in &routes {
         handle.add(r).await.unwrap();
     }
@@ -71,9 +86,15 @@ async fn main() {
                             let out_name = CString::new("en0").unwrap();
                             NonZeroU32::new(unsafe { libc::if_nametoindex(out_name.as_ptr()) })
                         };
-                        //socket.bind_device_by_index_v6(index).unwrap();
+                        // socket.bind_device_by_index_v6(index).unwrap();
                         socket.bind_device_by_index_v4(index).unwrap();
-						//socket.bind(&socket2::SockAddr::from(SocketAddr::from(([192,168,2,1],8080))));
+						// unsafe {
+						// 	let index = index.unwrap().get();
+						// 	if libc::setsockopt(socket.as_fd().as_raw_fd(), libc::IPPROTO_IP, libc::IP_BOUND_IF, std::ptr::addr_of!(index).cast(), std::mem::size_of::<u32>() as libc::socklen_t) == -1{
+						// 		panic!("setsockopt error");
+						// 	}
+						// };
+						//socket.bind(&socket2::SockAddr::from(SocketAddr::from(([192,168,1,1],0))));
                     }
                     socket
                         .connect(&SockAddr::from(SocketAddr::from((
@@ -84,9 +105,11 @@ async fn main() {
                     socket.set_nonblocking(true).unwrap();
                     let mut socket = tokio::net::TcpStream::from_std(socket.into()).unwrap();
                     tokio::spawn(async move {
-                        tokio::io::copy_bidirectional(&mut tcp, &mut socket)
-                            .await
-                            .unwrap();
+                        match tokio::io::copy_bidirectional(&mut tcp, &mut socket)
+                            .await{
+								Ok(_v) => {},
+								Err(_) => {},
+							}
                     });
                 }
                 ipstack::stream::IpStackStream::Udp(_) => {}
